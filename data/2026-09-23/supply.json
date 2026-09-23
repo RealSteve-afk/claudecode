@@ -1,0 +1,31 @@
+{
+  "generated_at_utc": "2026-09-23T06:07:56+00:00",
+  "mark_price_usd": 97.325,
+  "supply_m": {
+    "max": 1000.0,
+    "burned": 1.084,
+    "total": 998.916,
+    "future_emissions": 411.338,
+    "non_circulating_addresses": {
+      "0x43e9abea1910387c4292bca4b94de81462f8a251": 241.395,
+      "0xfefefefefefefefefefefefefefefefefefefefe": 47.423,
+      "0x0000000000000000000000000000000000000000": 0.002,
+      "0x000000000000000000000000000000000000dead": 0.0
+    },
+    "official_circulating": 298.759
+  },
+  "official_circulating_breakdown_m": {
+    "hyper_foundation": 60.487,
+    "staked_by_others": 142.725,
+    "  of_which_unstaking_within_7d": 2.665,
+    "hyperevm_bridge": 51.911,
+    "hypercore_spot_tracked": 30.113,
+    "hypercore_spot_untracked_residual": 13.523
+  },
+  "views_m": {
+    "official_circulating": 298.759,
+    "excluding_foundation": 238.272,
+    "liquid_not_staked_excluding_foundation": 95.546
+  },
+  "notes": "untracked_residual = official circulating minus every balance observed at an address; hyperevm_bridge includes HYPE locked in EVM DeFi/LPs; spot and staked snapshots differ by a few hours."
+}
