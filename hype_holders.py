@@ -17,12 +17,19 @@ Usage:
   python3 hype_holders.py              # full run (~3-4 hours; resumes after an interruption)
   python3 hype_holders.py --spot-only  # spot-only stats, finishes in seconds
   python3 hype_holders.py --refresh    # discard the cached snapshot and start over
+
+Outputs:
+  hype_holders.csv                 latest per-address details (address, spot, staked, total)
+  data/<date>/hype_holders.csv     per-address details archived for that snapshot
+  data/<date>/summary.json         tier counts, shares, top 20, and scope for that snapshot
+  data/history.csv                 one tier-summary row per run, for comparing over time
 """
 import argparse
 import csv
 import datetime
 import json
 import os
+import shutil
 import sys
 import threading
 import time
@@ -39,6 +46,9 @@ WORKERS = 8
 CACHE_DIR = ".cache"
 STAKE_CACHE = os.path.join(CACHE_DIR, "stake.jsonl")
 CSV_PATH = "hype_holders.csv"
+# Each run is archived to data/<snapshot date>/, and data/history.csv gets one row per run
+DATA_DIR = "data"
+HISTORY_PATH = os.path.join(DATA_DIR, "history.csv")
 # System/protocol addresses, reported separately in the summary
 SYSTEM_ADDRESSES = {
     "0x2222222222222222222222222222222222222222": "HyperEVM bridge",
@@ -151,6 +161,63 @@ def print_table(title, totals):
         print(f"  {label:<12}{n:>10,}{n / n_all:>9.2%}")
 
 
+def tier_stats(values):
+    """Count addresses and shares for each cumulative tier."""
+    n_all = len(values)
+    return {
+        "denominator": n_all,
+        "tiers": {str(t): {"count": (n := sum(1 for v in values if v >= t)), "pct": round(n / n_all * 100, 4)}
+                  for t in TIERS},
+    }
+
+
+def archive(snapshot, rows, mode, scope):
+    """Save this run's results to data/<date>/ and update data/history.csv."""
+    run_dir = os.path.join(DATA_DIR, f"{snapshot:%Y-%m-%d}")
+    os.makedirs(run_dir, exist_ok=True)
+    shutil.copyfile(CSV_PATH, os.path.join(run_dir, "hype_holders.csv"))
+
+    spot_stats = tier_stats([r[1] for r in rows if r[1] > 0])
+    total_stats = tier_stats([r[3] for r in rows]) if mode == "spot+staked" else None
+    summary = {
+        "spot_snapshot_utc": snapshot.isoformat(),
+        "generated_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+        "mode": mode,
+        "spot_only": spot_stats,
+        "spot_plus_staked": total_stats,
+        "gte_1000_excluding_system": (sum(1 for r in rows if r[3] >= 1000 and r[0] not in SYSTEM_ADDRESSES)
+                                      if total_stats else None),
+        "system_addresses": SYSTEM_ADDRESSES,
+        "top20": [{"address": a, "spot": s, "staked": k, "total": t, "tag": SYSTEM_ADDRESSES.get(a, "")}
+                  for a, s, k, t in rows[:20]],
+        "min_spot_queried_for_stake": MIN_SPOT_TO_QUERY,
+        "scope": scope,
+    }
+    with open(os.path.join(run_dir, "summary.json"), "w") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+
+    # One row per snapshot date; rerunning the same day replaces that row
+    fields = ["date", "spot_snapshot_utc", "mode", "spot_holders"] + [f"spot_gte_{t}" for t in TIERS] + \
+             ["total_holders"] + [f"total_gte_{t}" for t in TIERS]
+    row = {"date": f"{snapshot:%Y-%m-%d}", "spot_snapshot_utc": summary["spot_snapshot_utc"], "mode": mode,
+           "spot_holders": spot_stats["denominator"],
+           **{f"spot_gte_{t}": spot_stats["tiers"][str(t)]["count"] for t in TIERS}}
+    if total_stats:
+        row["total_holders"] = total_stats["denominator"]
+        row.update({f"total_gte_{t}": total_stats["tiers"][str(t)]["count"] for t in TIERS})
+    history = []
+    if os.path.exists(HISTORY_PATH):
+        with open(HISTORY_PATH) as f:
+            history = [r for r in csv.DictReader(f) if r["date"] != row["date"]]
+    history.append(row)
+    history.sort(key=lambda r: r["date"])
+    with open(HISTORY_PATH, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        w.writerows(history)
+    print(f"\nArchived to {run_dir}/ and updated {HISTORY_PATH}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--spot-only", action="store_true", help="skip staking queries")
@@ -202,13 +269,14 @@ def main():
         excl = sum(1 for r in rows if r[3] >= 1000 and r[0] not in SYSTEM_ADDRESSES)
         print(f"\n>=1,000 excluding system addresses (HyperEVM bridge / Assistance Fund): {excl:,}")
 
-    print(
-        "\nScope: HyperCore spot + staked (delegated + undelegated + unstaking in progress);"
+    scope = (
+        "HyperCore spot + staked (delegated + undelegated + unstaking in progress);"
         " excludes HyperEVM-side balances and exchange custody. Counts are addresses, not people."
         " An address that never appears in the delegation log and holds under"
         f" {MIN_SPOT_TO_QUERY} spot HYPE is not queried, so any stake it has is missed."
     )
-
+    print("\nScope: " + scope)
+    archive(snapshot, rows, "spot_only" if args.spot_only else "spot+staked", scope)
 
 if __name__ == "__main__":
     main()
