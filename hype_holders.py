@@ -1,73 +1,212 @@
-"""Count HYPE holders on Hyperliquid by balance tier.
+"""Count HYPE holders on Hyperliquid by balance tier (spot + staked).
 
-Source: Hypurrscan public API, GET https://api.hypurrscan.io/holders/HYPE
-(returns {"token", "lastUpdate", "holdersCount", "holders": {address: balance}}).
+Data sources:
+  - Spot balances: Hypurrscan GET https://api.hypurrscan.io/holders/HYPE
+    ({"token", "lastUpdate", "holdersCount", "holders": {address: balance}}).
+    Spot only; addresses that only stake are absent.
+  - Candidate staker addresses: Hypurrscan GET /allDelegations
+    (a delegate/undelegate event log, not balances; used only to find addresses).
+  - Staked balances: official POST https://api.hyperliquid.xyz/info
+    {"type": "delegatorSummary", "user": address}, queried one address at a time.
+    Staked = delegated + undelegated + totalPendingWithdrawal.
 
-Scope: HyperCore spot balances only. Staked (delegated) HYPE is NOT included,
-and addresses that only stake don't appear in the data at all.
-Run again at any time to refresh the numbers.
+Addresses queried: every address in the delegation log + every holder with
+spot >= MIN_SPOT_TO_QUERY.
+
+Usage:
+  python3 hype_holders.py              # full run (~3-4 hours; resumes after an interruption)
+  python3 hype_holders.py --spot-only  # spot-only stats, finishes in seconds
+  python3 hype_holders.py --refresh    # discard the cached snapshot and start over
 """
+import argparse
 import csv
 import datetime
 import json
+import os
 import sys
+import threading
 import time
+import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
-HOLDERS_URL = "https://api.hypurrscan.io/holders/HYPE"
+HYPURRSCAN = "https://api.hypurrscan.io"
+INFO_URL = "https://api.hyperliquid.xyz/info"
 TIERS = [10, 100, 1_000, 10_000]
+MIN_SPOT_TO_QUERY = 0.01
+RATE_PER_SEC = 15  # measured ceiling is ~20/s; leave some headroom
+WORKERS = 8
+CACHE_DIR = ".cache"
+STAKE_CACHE = os.path.join(CACHE_DIR, "stake.jsonl")
 CSV_PATH = "hype_holders.csv"
+# System/protocol addresses, reported separately in the summary
+SYSTEM_ADDRESSES = {
+    "0x2222222222222222222222222222222222222222": "HyperEVM bridge",
+    "0xfefefefefefefefefefefefefefefefefefefefe": "Assistance Fund",
+}
 
 
-def fetch_holders(retries=4):
-    """Download the holders snapshot, retrying on network errors."""
+def http_json(url, body=None, timeout=300, retries=6):
+    """GET/POST JSON with exponential backoff on 429, 5xx, and network errors."""
+    data = json.dumps(body).encode() if body is not None else None
+    headers = {"Content-Type": "application/json"} if body is not None else {}
     for i in range(retries):
         try:
-            with urllib.request.urlopen(HOLDERS_URL, timeout=120) as r:
+            req = urllib.request.Request(url, data=data, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.load(r)
-        except Exception as e:
-            if i == retries - 1:
+        except urllib.error.HTTPError as e:
+            if e.code != 429 and e.code < 500:
                 raise
-            print(f"Request failed ({e}); retrying in {2 ** (i + 1)}s", file=sys.stderr)
-            time.sleep(2 ** (i + 1))
+            err = e
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            err = e
+        if i == retries - 1:
+            raise err
+        time.sleep(2 ** (i + 1))
+
+
+def cached_fetch(name, url, refresh):
+    """Cache Hypurrscan snapshots locally so a resumed run uses the same snapshot."""
+    path = os.path.join(CACHE_DIR, name)
+    if not refresh and os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)
+    data = http_json(url)
+    with open(path, "w") as f:
+        json.dump(data, f)
+    return data
+
+
+class RateLimiter:
+    """Simple rate limiter shared across threads."""
+
+    def __init__(self, per_sec):
+        self.interval = 1 / per_sec
+        self.next = time.monotonic()
+        self.lock = threading.Lock()
+
+    def wait(self):
+        with self.lock:
+            now = time.monotonic()
+            self.next = max(self.next + self.interval, now)
+            delay = self.next - now
+        if delay > 0:
+            time.sleep(delay)
+
+
+def query_stakes(addresses):
+    """Query delegatorSummary for each address, appending results to a JSONL cache (resumable)."""
+    done = {}
+    if os.path.exists(STAKE_CACHE):
+        with open(STAKE_CACHE) as f:
+            for line in f:
+                rec = json.loads(line)
+                done[rec["user"]] = rec["staked"]
+    todo = [a for a in addresses if a not in done]
+    print(f"Staking queries: {len(addresses):,} total, {len(done):,} cached, {len(todo):,} to go", flush=True)
+
+    limiter = RateLimiter(RATE_PER_SEC)
+    lock = threading.Lock()
+    start = time.time()
+    count = 0
+
+    def work(addr):
+        nonlocal count
+        limiter.wait()
+        s = http_json(INFO_URL, {"type": "delegatorSummary", "user": addr}, timeout=30)
+        # Stop if the fields change instead of guessing
+        if not isinstance(s, dict) or not {"delegated", "undelegated", "totalPendingWithdrawal"} <= s.keys():
+            raise RuntimeError(f"Unexpected delegatorSummary format for {addr}: {s!r}")
+        staked = float(s["delegated"]) + float(s["undelegated"]) + float(s["totalPendingWithdrawal"])
+        with lock:
+            out.write(json.dumps({"user": addr, "staked": staked}) + "\n")
+            done[addr] = staked
+            count += 1
+            if count % 5000 == 0:
+                out.flush()
+                rate = count / (time.time() - start)
+                eta = (len(todo) - count) / rate / 60
+                print(f"  {count:,}/{len(todo):,}  {rate:.1f}/s  about {eta:.0f} min left", flush=True)
+
+    with open(STAKE_CACHE, "a") as out, ThreadPoolExecutor(WORKERS) as ex:
+        # list() re-raises any exception from a worker
+        list(ex.map(work, todo))
+    return done
+
+
+def print_table(title, totals):
+    n_all = len(totals)
+    print(f"\n{title} (denominator: {n_all:,} addresses with a balance)")
+    print(f"{'Tier':<14}{'Addresses':>10}{'Share':>9}")
+    print("-" * 33)
+    for t in TIERS:
+        n = sum(1 for v in totals if v >= t)
+        print(f"{'>= ' + format(t, ','):<14}{n:>10,}{n / n_all:>9.2%}")
+    bounds = [0] + TIERS + [float("inf")]
+    print("  segments:")
+    for lo, hi in zip(bounds, bounds[1:]):
+        n = sum(1 for v in totals if lo <= v < hi)
+        label = f">= {lo:,}" if hi == float("inf") else f"{lo:,}-{hi:,}"
+        print(f"  {label:<12}{n:>10,}{n / n_all:>9.2%}")
 
 
 def main():
-    data = fetch_holders()
-    holders = data.get("holders")
-    # Stop if the response format has changed instead of guessing
-    if not isinstance(holders, dict) or not holders:
-        sys.exit(f"Unexpected response format, top-level keys: {list(data)}")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--spot-only", action="store_true", help="skip staking queries")
+    ap.add_argument("--refresh", action="store_true", help="refetch snapshots and clear the staking cache")
+    args = ap.parse_args()
 
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    if args.refresh and os.path.exists(STAKE_CACHE):
+        os.remove(STAKE_CACHE)
+
+    data = cached_fetch("holders.json", f"{HYPURRSCAN}/holders/HYPE", args.refresh)
+    spot = data.get("holders")
+    if not isinstance(spot, dict) or not spot:
+        sys.exit(f"Unexpected holders format, top-level keys: {list(data)}")
     snapshot = datetime.datetime.fromtimestamp(data["lastUpdate"], datetime.timezone.utc)
-    balances = sorted(holders.items(), key=lambda x: -x[1])
-    total = len(balances)
+    print(f"Spot snapshot: {snapshot:%Y-%m-%d %H:%M} UTC, {len(spot):,} addresses")
 
-    # Save each address's balance, largest first
+    staked = {}
+    if not args.spot_only:
+        events = cached_fetch("allDelegations.json", f"{HYPURRSCAN}/allDelegations", args.refresh)
+        if not isinstance(events, list) or not events or "user" not in events[0]:
+            sys.exit("Unexpected allDelegations format")
+        log_users = {e["user"] for e in events}
+        to_query = sorted(log_users | {a for a, b in spot.items() if b >= MIN_SPOT_TO_QUERY})
+        staked = query_stakes(to_query)
+
+    # Merge by address; keep only addresses with a balance
+    rows = []
+    for addr in set(spot) | set(staked):
+        s, k = spot.get(addr, 0.0), staked.get(addr, 0.0)
+        if s + k > 0:
+            rows.append((addr, s, k, s + k))
+    rows.sort(key=lambda r: -r[3])
+
     with open(CSV_PATH, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["address", "spot_hype"])
-        w.writerows(balances)
+        w.writerow(["address", "spot_hype", "staked_hype", "total_hype"])
+        for addr, s, k, t in rows:
+            w.writerow([addr, f"{s:.8f}", f"{k:.8f}" if not args.spot_only else "", f"{t:.8f}"])
 
-    print(f"Snapshot: {snapshot:%Y-%m-%d %H:%M} UTC   Total holder addresses: {total:,}\n")
-    print(f"{'Tier':<12}{'Addresses':>10}{'Share':>9}")
-    print("-" * 31)
-    for t in TIERS:
-        n = sum(1 for _, b in balances if b >= t)
-        print(f"{'>= ' + format(t, ','):<12}{n:>10,}{n / total:>9.2%}")
+    print("\nTop 20 addresses by total balance:")
+    for i, (addr, s, k, t) in enumerate(rows[:20], 1):
+        tag = SYSTEM_ADDRESSES.get(addr, "")
+        print(f"{i:>2} {addr} total {t:>14,.0f}  spot {s:>13,.0f}  staked {k:>13,.0f}  {tag}")
 
-    print("\nSegmented distribution")
-    print("-" * 31)
-    bounds = [0] + TIERS + [float("inf")]
-    for lo, hi in zip(bounds, bounds[1:]):
-        n = sum(1 for _, b in balances if lo <= b < hi)
-        label = f">= {lo:,}" if hi == float("inf") else f"{lo:,}-{hi:,}"
-        print(f"{label:<12}{n:>10,}{n / total:>9.2%}")
+    print_table("Spot only", [r[1] for r in rows if r[1] > 0])
+    if not args.spot_only:
+        print_table("Spot + staked", [r[3] for r in rows])
+        excl = sum(1 for r in rows if r[3] >= 1000 and r[0] not in SYSTEM_ADDRESSES)
+        print(f"\n>=1,000 excluding system addresses (HyperEVM bridge / Assistance Fund): {excl:,}")
 
     print(
-        "\nScope: HyperCore spot balances only, excluding staked HYPE, HyperEVM-side balances"
-        " and exchange custody. Counts are addresses, not people (one person may hold several"
-        " addresses). The denominator includes a lot of dust addresses, so the shares look small."
+        "\nScope: HyperCore spot + staked (delegated + undelegated + unstaking in progress);"
+        " excludes HyperEVM-side balances and exchange custody. Counts are addresses, not people."
+        " An address that never appears in the delegation log and holds under"
+        f" {MIN_SPOT_TO_QUERY} spot HYPE is not queried, so any stake it has is missed."
     )
 
 
