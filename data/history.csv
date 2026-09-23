@@ -1,0 +1,2 @@
+date,spot_snapshot_utc,mode,spot_holders,spot_gte_10,spot_gte_100,spot_gte_1000,spot_gte_10000,total_holders,total_gte_10,total_gte_100,total_gte_1000,total_gte_10000
+2026-09-23,2026-09-23T00:51:17+00:00,spot+staked,258796,26941,10644,2657,412,282858,50029,22491,6994,1987

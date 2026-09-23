@@ -1,0 +1,196 @@
+{
+  "spot_snapshot_utc": "2026-09-23T00:51:17+00:00",
+  "generated_at_utc": "2026-09-23T05:34:40+00:00",
+  "mode": "spot+staked",
+  "spot_only": {
+    "denominator": 258796,
+    "tiers": {
+      "10": {
+        "count": 26941,
+        "pct": 10.4101
+      },
+      "100": {
+        "count": 10644,
+        "pct": 4.1129
+      },
+      "1000": {
+        "count": 2657,
+        "pct": 1.0267
+      },
+      "10000": {
+        "count": 412,
+        "pct": 0.1592
+      }
+    }
+  },
+  "spot_plus_staked": {
+    "denominator": 282858,
+    "tiers": {
+      "10": {
+        "count": 50029,
+        "pct": 17.687
+      },
+      "100": {
+        "count": 22491,
+        "pct": 7.9513
+      },
+      "1000": {
+        "count": 6994,
+        "pct": 2.4726
+      },
+      "10000": {
+        "count": 1987,
+        "pct": 0.7025
+      }
+    }
+  },
+  "gte_1000_excluding_system": 6992,
+  "system_addresses": {
+    "0x2222222222222222222222222222222222222222": "HyperEVM bridge",
+    "0xfefefefefefefefefefefefefefefefefefefefe": "Assistance Fund"
+  },
+  "top20": [
+    {
+      "address": "0x43e9abea1910387c4292bca4b94de81462f8a251",
+      "spot": 0.00327328,
+      "staked": 241394582.7314667,
+      "total": 241394582.73474,
+      "tag": ""
+    },
+    {
+      "address": "0xd57ecca444a9acb7208d286be439de12dd09de5d",
+      "spot": 50000.00000044,
+      "staked": 60437233.24179099,
+      "total": 60487233.24179143,
+      "tag": ""
+    },
+    {
+      "address": "0x2222222222222222222222222222222222222222",
+      "spot": 51910952.90307767,
+      "staked": 0.0,
+      "total": 51910952.90307767,
+      "tag": "HyperEVM bridge"
+    },
+    {
+      "address": "0xfefefefefefefefefefefefefefefefefefefefe",
+      "spot": 47417427.87473923,
+      "staked": 0.0,
+      "total": 47417427.87473923,
+      "tag": "Assistance Fund"
+    },
+    {
+      "address": "0x393d0b87ed38fc779fd9611144ae649ba6082109",
+      "spot": 0.0,
+      "staked": 12292841.46236618,
+      "total": 12292841.46236618,
+      "tag": ""
+    },
+    {
+      "address": "0x488d2a9b70cc18ef66057a48ab3d59da1c59fe08",
+      "spot": 1e-08,
+      "staked": 3069704.44585223,
+      "total": 3069704.4458522396,
+      "tag": ""
+    },
+    {
+      "address": "0xa20fcfa0507fe762011962cc581b95bbbc3bbdba",
+      "spot": 106500.0,
+      "staked": 2865163.1390144196,
+      "total": 2971663.1390144196,
+      "tag": ""
+    },
+    {
+      "address": "0x4eb8d907136189a34c9b087950211b6a566f7819",
+      "spot": 0.0,
+      "staked": 2445535.31244776,
+      "total": 2445535.31244776,
+      "tag": ""
+    },
+    {
+      "address": "0x05cafe987297448f21a3c7ae0ae815fddecac655",
+      "spot": 0.444,
+      "staked": 2369756.57942172,
+      "total": 2369757.02342172,
+      "tag": ""
+    },
+    {
+      "address": "0x85530f0ff6496c72a619f37a60f3c1a59077737f",
+      "spot": 0.01,
+      "staked": 1900352.33202961,
+      "total": 1900352.34202961,
+      "tag": ""
+    },
+    {
+      "address": "0x1ab185be5ff61f7b678d6a871d439307cd0752e3",
+      "spot": 0.0,
+      "staked": 1783699.27486291,
+      "total": 1783699.27486291,
+      "tag": ""
+    },
+    {
+      "address": "0x493db0ed7514c975e9abcc110bd40c473b6763e3",
+      "spot": 1067316.92180006,
+      "staked": 257851.20884445,
+      "total": 1325168.13064451,
+      "tag": ""
+    },
+    {
+      "address": "0x3258e4e06929b746854c989de764efd015db3943",
+      "spot": 1.93,
+      "staked": 1304324.2631144,
+      "total": 1304326.1931144,
+      "tag": ""
+    },
+    {
+      "address": "0xfec495e7432264678175bea68c4d7678944f6635",
+      "spot": 0.1,
+      "staked": 1122926.14393081,
+      "total": 1122926.2439308101,
+      "tag": ""
+    },
+    {
+      "address": "0x7aa14144f5811aab1ba4a07f014a592f8c9d864c",
+      "spot": 0.0,
+      "staked": 1118452.20834204,
+      "total": 1118452.20834204,
+      "tag": ""
+    },
+    {
+      "address": "0xf8e3128c778a828f079049eefb89a9041cb4af4d",
+      "spot": 0.0,
+      "staked": 1012339.61442052,
+      "total": 1012339.61442052,
+      "tag": ""
+    },
+    {
+      "address": "0x4e14fc11f58b64740e66e4b1aa188a4b007c0eab",
+      "spot": 995955.82387139,
+      "staked": 0.0,
+      "total": 995955.82387139,
+      "tag": ""
+    },
+    {
+      "address": "0xd0e2842e830f2107f151ec0bd307c5871a3b4018",
+      "spot": 0.0,
+      "staked": 968698.12913121,
+      "total": 968698.12913121,
+      "tag": ""
+    },
+    {
+      "address": "0xbdfa4f4492dd7b7cf211209c4791af8d52bf5c50",
+      "spot": 1000.13173804,
+      "staked": 912257.56236321,
+      "total": 913257.69410125,
+      "tag": ""
+    },
+    {
+      "address": "0xf9693821d9235a3c08b1c5abfd8dd6d908ee9e12",
+      "spot": 0.01,
+      "staked": 859034.12320085,
+      "total": 859034.13320085,
+      "tag": ""
+    }
+  ],
+  "min_spot_queried_for_stake": 0.01,
+  "scope": "HyperCore spot + staked (delegated + undelegated + unstaking in progress); excludes HyperEVM-side balances and exchange custody. Counts are addresses, not people. An address that never appears in the delegation log and holds under 0.01 spot HYPE is not queried, so any stake it has is missed."
+}
